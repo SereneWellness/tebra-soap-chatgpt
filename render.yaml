@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: tebra-soap-chatgpt
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: MCP_TRANSPORT=streamable-http python server.py
+    envVars:
+      - key: TEBRA_USERNAME
+        sync: false
+      - key: TEBRA_PASSWORD
+        sync: false
+      - key: TEBRA_CUSTOMER_KEY
+        sync: false
+      - key: TEBRA_WSDL_URL
+        value: https://webservice.kareo.com/services/soap/2.1/KareoServices.svc?wsdl
