@@ -146,6 +146,88 @@ def list_practices(result_limit: int = 50) -> Any:
     }
     return call("GetPractices", request, max(1, min(result_limit, 500)))
 
+@mcp.tool()
+def create_patient_soap_note(
+    patient_id: int,
+    patient_name: str,
+    note_date: str,
+    subjective: str,
+    objective: str,
+    assessment: str,
+    plan: str,
+    confirmation_phrase: str = "",
+) -> Any:
+    """Create a dated SOAP note document in a Tebra patient chart.
+
+    This is a deliberately narrow write operation. First call it without the
+    confirmation phrase to preview the exact document. After the user confirms
+    the patient and contents, call it again with confirmation_phrase exactly
+    equal to CREATE TEBRA NOTE. The patient name is recorded for audit clarity;
+    Tebra links the document using patient_id.
+    """
+    if patient_id <= 0:
+        raise ValueError("patient_id must be a positive integer")
+    if not patient_name.strip():
+        raise ValueError("patient_name is required")
+    try:
+        parsed_date = date.fromisoformat(note_date)
+    except ValueError as exc:
+        raise ValueError("note_date must use YYYY-MM-DD format") from exc
+
+    sections = {
+        "Subjective": subjective.strip(),
+        "Objective": objective.strip(),
+        "Assessment": assessment.strip(),
+        "Plan": plan.strip(),
+    }
+    missing = [name for name, value in sections.items() if not value]
+    if missing:
+        raise ValueError("All SOAP sections are required: " + ", ".join(missing))
+
+    title = f"SOAP Note - {parsed_date.isoformat()}"
+    body = "\n".join([
+        title,
+        f"Patient: {patient_name.strip()} (Tebra Patient ID {patient_id})",
+        "",
+        *[f"{name}:\n{value}\n" for name, value in sections.items()],
+        "This is a system integration test and not a clinical encounter.",
+    ])
+    preview = {
+        "patient_id": patient_id,
+        "patient_name": patient_name.strip(),
+        "practice_id": 1,
+        "document_date": parsed_date.isoformat(),
+        "document_name": title,
+        "label": "OtherOfficeNote",
+        "status": "Processed",
+        "file_name": f"soap-note-{parsed_date.isoformat()}.txt",
+        "content": body,
+    }
+
+    if confirmation_phrase != "CREATE TEBRA NOTE":
+        return {
+            "created": False,
+            "confirmation_required": True,
+            "required_confirmation_phrase": "CREATE TEBRA NOTE",
+            "preview": preview,
+        }
+
+    request = {
+        "DocumentToCreate": {
+            "DocumentDate": parsed_date.isoformat(),
+            "DocumentNotes": "Created through the ChatGPT-Tebra SOAP connector.",
+            "FileContent": body.encode("utf-8"),
+            "FileName": preview["file_name"],
+            "Label": preview["label"],
+            "Name": title,
+            "PatientId": patient_id,
+            "PracticeId": 1,
+            "Status": preview["status"],
+        }
+    }
+    response = call("CreateDocument", request)
+    return {"created": True, "document": preview, "tebra_response": response}
+
 if __name__ == "__main__":
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
     mcp.run(transport=transport)
